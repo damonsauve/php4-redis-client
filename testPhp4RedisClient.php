@@ -6,12 +6,18 @@ $port = 6379;
 
 $redis = new Php4RedisClient($host, $port);
 
+print "Flush the db...
+";
+
 // Warning: This will flush the db!
 //
-$method = 'flushdb';
+$method = 'FLUSHDB';
 $args = array();
 
 $redis->callRedis($method, $args);
+
+print "Set some key-values for Flintstones...
+";
 
 // Add some data.
 //
@@ -25,6 +31,7 @@ $flintstones = array(
 );
 
 $method = 'MSET';
+$args = array();
 
 foreach ($flintstones as $i => $id) {
     $args[] = 'flintstone:' . $i;
@@ -32,6 +39,9 @@ foreach ($flintstones as $i => $id) {
 }
 
 $redis->callRedis($method, $args);
+
+print "Get all values for the keys 'flintstone:'
+";
 
 // Get the example data.
 //
@@ -46,7 +56,18 @@ $redis->callRedis($method, $args);
 
 print_r($redis->response);
 
+print "Get all keys starting with 'flintstone:'
+";
+
+// Get the example data.
+//
+$method = 'KEYS';
+$args = array( 'flintstone:*' );
+
+$redis->callRedis($method, $args);
+
+print_r($redis->response);
+
 $redis->disconnect();
 
 exit();
-

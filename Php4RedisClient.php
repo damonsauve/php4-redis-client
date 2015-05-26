@@ -68,9 +68,9 @@ class Php4RedisClient
 
     function callRedis($method, $args)
     {
-        unset($this->_responseType);
-        unset($this->_buffer);
-        unset($this->response);
+        $this->_clear_buffer();
+        $this->_clear_responseType();
+        $this->_clear_response();
 
         $this->_lastIndexNumber = 0;
         $this->_itemCount = 0;
@@ -114,7 +114,6 @@ class Php4RedisClient
         if ($this->is_connected()) {
             socket_close($this->_socket);
             $this->_socket = null;
-
             return true;
         } else {
             return false;
@@ -194,6 +193,27 @@ class Php4RedisClient
         return;
     }
 
+    function _clear_buffer()
+    {
+        $this->_buffer = '';
+
+        return;
+    }
+
+    function _clear_responseType()
+    {
+        $this->_responseType = '';
+
+        return;
+    }
+
+    function _clear_response()
+    {
+        $this->response = '';
+
+        return;
+    }
+
     function _build_redis_command($args)
     {
         $cmd = '*' . count($args) . "\r\n";
@@ -201,8 +221,6 @@ class Php4RedisClient
         foreach ($args as $item) {
             $cmd .= '$' . strlen($item) . "\r\n" . $item . "\r\n";
         }
-
-        //$this->_dump($cmd, redis_command);
 
         return $cmd;
     }
@@ -215,35 +233,25 @@ class Php4RedisClient
             $this->_set_response_type();
         }
 
-        if ($this->_responseType == '*') {
-            // RESP Arrays
-            //
-            $this->_handle_redis_array();
-        } elseif ($this->_responseType == '+') {
-            // RESP Simple Strings
-            //
-            if ($this->_itemCount == 'OK') {
-                //print "Response: " . $this->_itemCount . "\n";
-                $this->_needsMoreData = FALSE;
-            } else {
-                // Not handled.
-                print "Response type not handled: " . $this->_responseType;
-            }
-        } elseif ($this->_responseType == '-') {
-            // RESP Errors: Not handled
-            //
-            print "Response type not handled: " . $this->_responseType;
-        } elseif ($this->_responseType == ':') {
-            // RESP Integers: Not handled
-            //
-            print "Response type not handled: " . $this->_responseType;
-        } elseif ($this->_responseType == '$') {
-            // RESP Bulk Strings: Not handled
-            //
-            print "Response type not handled: " . $this->_responseType;
-        } else {
-            // Not enough socket data to determine type. Keep reading.
-        }
+        switch ($this->_responseType) {
+            case '*':
+                $this->_handle_redis_array();
+                break;
+            case '+':
+                $this->_handle_redis_simple_strings();
+                break;
+            case '-':
+                $this->_handle_redis_errors();
+                break;
+            case ':':
+                $this->_handle_redis_integers();
+                break;
+            case '$':
+                $this->_handle_redis_bulk_strings();
+                break;
+            default:
+                // Not enough data to determine type. Keep reading from socket.
+       }
 
         return;
     }
@@ -265,17 +273,14 @@ class Php4RedisClient
         $this->_responseType = substr($data[0], 0, 1);
         $this->_itemCount = substr($data[0], 1, strlen($data[0]) - 1);
 
-        //$this->_dump($this->_responseType, response_type);
-        //$this->_dump($this->_itemCount, item_count);
-
         return;
     }
 
     function _handle_redis_array()
     {
-        // The problem with user generated data is that it may contain CRs and
-        // LFs, so we need to jump through a few extra hoops to ensure data
-        // integrity. Ie, we can't just split Redis data on /r/n.
+        // Split buffer on /r/n$ to get each Redis item, then compare Redis item
+        // length with item length to determine if all data hasd been returned
+        // from buffer. If not, read more from socket.
         //
         $matches = preg_split('/\r\n\$/', $this->_buffer);
 
@@ -283,25 +288,18 @@ class Php4RedisClient
         //
         array_shift($matches);
 
-        //$this->_dump($this->_itemCount, total_items_found);
-        //$this->_dump($this->_buffer, currrent_buffer);
-        //$this->_dump(count($matches), matches_found_in_buffer);
-        //$this->_dump($this->_lastIndexNumber, current_items_found);
-
         if (is_array($matches)) {
             // Only parse new items in the buffer.
             //
             for ($i = $this->_lastIndexNumber; $i < count($matches); $i ++) {
                 $items = explode("\r\n", $matches[$i]);
 
+                //$this->_dump($items, 'items');
+
                 $item_length = trim($items[0], '$');
                 $item_value = $items[1];
 
-                //$this->_dump($item_length, need_item_length);
-                //$this->_dump($item_value, item_value);
-
                 $found_item_length = mb_strlen($item_value);
-                //$this->_dump($found_item_length, found_item_length);
 
                 // Null elements in Arrays
                 //
@@ -331,14 +329,46 @@ class Php4RedisClient
             // If _lastIndexNumber equals _itemCount, we're done.
             //
             if ($this->_lastIndexNumber == $this->_itemCount) {
-                $this->_needsMoreData = FALSE;
+                $this->_needsMoreData = false;
             }
         } else {
-            print "Error: Not a array!\n";
-
+            print "Error: Invalid input type for " . $this->_responseType;
             return;
         }
 
+        return;
+    }
+
+    function _handle_redis_simple_strings()
+    {
+        if ($this->_itemCount == 'OK') {
+            $this->_needsMoreData = false;
+        } else {
+            $this->_needsMoreData = false;
+            print "Error: Response type not handled: " . $this->_responseType;
+        }
+
+        return;
+    }
+
+    function _handle_redis_errors()
+    {
+        print "Redis Error: " . $this->_itemCount;
+        $this->_needsMoreData = false;
+        return;
+    }
+
+    function _handle_redis_integers()
+    {
+        print "Error: Response type not handled: " . $this->_responseType;
+        $this->_needsMoreData = false;
+        return;
+    }
+
+    function _handle_redis_bulk_strings()
+    {
+        print "Error: Response type not handled: " . $this->_responseType;
+        $this->_needsMoreData = false;
         return;
     }
 
