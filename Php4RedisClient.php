@@ -279,7 +279,7 @@ class Php4RedisClient
     function _handle_redis_array()
     {
         // Split buffer on /r/n$ to get each Redis item, then compare Redis item
-        // length with item length to determine if all data hasd been returned
+        // length with item length to determine if all data has been returned
         // from buffer. If not, read more from socket.
         //
         $matches = preg_split('/\r\n\$/', $this->_buffer);
